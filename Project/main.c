@@ -101,36 +101,93 @@ void vApplicationMallocFailedHook( void );
 void vApplicationIdleHook( void );
 void vApplicationTickHook( void );
 
-typedef struct taskParams
-{  
-    int taskNo;
-    int period;
-} taskParams_t;
 
-static void Task(void * params)
+#define SIZE 10
+#define ROW SIZE
+#define COL SIZE
+static void matrix_task() 
 {
-    while(1)
-    {
-        /* Note, could have used vTaskDelay until for more accurate timing (use xTaskGetTickCount() */
-        vTaskDelay(((taskParams_t*)params)->period/portTICK_PERIOD_MS);
-        
-        /* Could have used pcTaskGetTaskName(xTaskGetCurrentTaskHandle()); */
-        printf("This is task %d\n", ((taskParams_t*)params)->taskNo);
-        fflush(stdout);
+    int i;
+    double **a = (double **)pvPortMalloc(ROW * sizeof(double*));
+    for (i = 0; i < ROW; i++) a[i] = (double *)pvPortMalloc(COL * sizeof(double));
+    double **b = (double **)pvPortMalloc(ROW * sizeof(double*));
+    for (i = 0; i < ROW; i++) b[i] = (double *)pvPortMalloc(COL * sizeof(double));
+    double **c = (double **)pvPortMalloc(ROW * sizeof(double*));
+    for (i = 0; i < ROW; i++) c[i] = (double *)pvPortMalloc(COL * sizeof(double));
+
+    double sum = 0.0;
+    int j, k, l;
+
+    for (i = 0; i < SIZE; i++) {
+        for (j = 0; j < SIZE; j++) {
+            a[i][j] = 1.5;
+            b[i][j] = 2.6;
+        }
+    }
+
+    while (1) {
+        /*
+        * In an embedded systems, matrix multiplication would block the CPU for a long time
+        * but since this is a PC simulator we must add one additional dummy delay.
+        */
+        long simulationdelay;
+        for (simulationdelay = 0; simulationdelay<1000000000; simulationdelay++)
+            ;
+        for (i = 0; i < SIZE; i++) {
+            for (j = 0; j < SIZE; j++) {
+                c[i][j] = 0.0;
+            }
+        }
+
+        for (i = 0; i < SIZE; i++) {
+            for (j = 0; j < SIZE; j++) {
+                sum = 0.0;
+                for (k = 0; k < SIZE; k++) {
+                    for (l = 0; l<10; l++) {
+                        sum = sum + a[i][k] * b[k][j];
+                    }
+                }
+                c[i][j] = sum;
+            }
+        }
+        vTaskDelay(100);
+        printf("One matix loop\n");
     }
 }
+
+static void communication_task()
+{
+    TickType_t tickCount = xTaskGetTickCount();
+    TickType_t curTickCount;
+    while (1) 
+    {
+        curTickCount = xTaskGetTickCount();
+        //TODO handle init and wrap
+        TickType_t tickDiff = curTickCount - tickCount;
+        tickCount = curTickCount;
+        
+        printf("TickCount: %d\n", tickDiff);    
+
+        printf("Sending data...\n");
+        fflush(stdout);
+        vTaskDelay(100);
+        printf("Data sent!\n");
+        fflush(stdout);
+        vTaskDelay(100);
+    }
+}
+
 
 /*-----------------------------------------------------------*/
 
 int main ( void )
 {
-    taskParams_t t1 = {1, 100};   
-    taskParams_t t2 = {2, 500}; 
+    TaskHandle_t matrix_handle;
+    TaskHandle_t communication_handle;
 
-    /* Notes, could have passed in reference to TaskHandle_t here */  
-	xTaskCreate( Task, "Task1", 1000, (void *) &t1, 3, NULL );
-	xTaskCreate( Task, "Task2", 100, (void *) &t2, 1, NULL );
-	
+    xTaskCreate((pdTASK_CODE)matrix_task, (const char *)"Matrix", 1000, NULL, 1, &matrix_handle);
+    xTaskCreate((pdTASK_CODE)communication_task, (const char *)"Communication", configMINIMAL_STACK_SIZE, NULL, 2, &communication_handle);
+
 	/* Start the scheduler itself. */
 	vTaskStartScheduler();
 
