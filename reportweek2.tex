@@ -1,0 +1,130 @@
+
+\documentclass{article}
+\usepackage{graphicx}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{\baselineskip}
+\usepackage{listings}
+
+\newenvironment{qanda}{\setlength{\parindent}{0pt}}{\bigskip}
+\newcommand{\Q}{\bigskip\bfseries Q: }
+\newcommand{\A}{\par\textbf{A:} \normalfont}
+
+
+\begin{document}
+
+\title{Development of Real-Time Systems: Assignment 2}
+\author{Ross Owen}
+\maketitle
+
+\section{Unblock Comms Without Modifying Tasks}
+The "communicationtask" must send a simulated data packet every 200ms but is often blocked by "matrixtask". In order to fix this problem without modifying the task the priority of the tasks must be modified.
+
+In FreeRTOS each task is assigned a priority from 0 to configMAX\_PRIORITIES - 1, where configMAX\_PRIORITIES is defined within FreeRTOSConfig.h.
+Initially the communications task is set to priority 3 and matrix task set to priority 1 and therefore the Matrix task has been set to a higher priority than the Communications task.
+
+Reversing the priority of these two tasks resolves the issue without modifying the either of the code in the two tasks.
+
+\subsection{Proof \& Testing}
+
+In order to prove this was the case a quick test was authored to measure how often the Communications was was being called.
+This was based on \verb|xTaskGetTickCount()| which returns the count of ticks since \verb|vTaskStartScheduler()| was called.
+
+\begin{lstlisting}[language=C]
+static void communication_task()
+{
+    TickType_t prevTickCount = xTaskGetTickCount();
+    TickType_t curTickCount;
+    
+    while (1) 
+    {
+        /* Measurement */
+        curTickCount = xTaskGetTickCount();
+        TickType_t tickDiff = curTickCount - prevTickCount;
+        prevTickCount = curTickCount;
+        printf("TickCount: %d\n", tickDiff);    
+
+        /* Original task code */
+        printf("Sending data...\n");
+        fflush(stdout);
+        vTaskDelay(100);
+        printf("Data sent!\n");
+        fflush(stdout);
+        vTaskDelay(100);
+    }
+}
+\end{lstlisting}
+
+With the original priorities the output (as shown below) shows that the communications task is blocked for longer the 200ms.
+
+\begin{lstlisting}
+TickCount: 897
+Sending data...
+Data sent!
+TickCount: 900
+Sending data...
+Data sent!
+TickCount: 905
+Sending data...
+Data sent!
+TickCount: 890
+Sending data...
+Data sent!
+TickCount: 897
+Sending data...
+Data sent!
+TickCount: 891
+Sending data...
+Data sent!
+TickCount: 893
+Sending data...
+Data sent!
+\end{lstlisting}
+
+By increasing the priority of communications task to a priority higher than matrix task (say 2 and 1 respectively) the output belows shows that th
+communications task can run every 200ms as required:
+
+\begin{lstlisting}
+TickCount: 200
+Sending data...
+Data sent!
+TickCount: 200
+Sending data...
+Data sent!
+TickCount: 200
+Sending data...
+Data sent!
+TickCount: 200
+Sending data...
+Data sent!
+TickCount: 200
+Sending data...
+Data sent!
+TickCount: 200
+Sending data...
+Data sent!
+\end{lstlisting}
+
+
+\section{Adding ``prioritysettask''}
+
+\subsection{Subsection Heading Here}
+Write your subsection text here.
+
+
+\section{Questions}
+
+\begin{qanda}
+
+\Q Why is "matrixtask" using most of the CPU utilization?
+\A
+
+\Q Why must the priority of "communicationtask" increase in order for it to work properly
+
+\Q What happens to the completion time of "matrixtask" when the priority of "communicationtask" is increased?
+
+\Q How many seconds is the period of "matrixtask"? (Hint: look at vApplicationTickHook() to measure it)
+
+\end{qanda}
+
+\end{document}
+
