@@ -122,7 +122,7 @@ static void aperiodic_task()
 
     TickType_t aperiodicResponseTime = g_tickCount - g_aperiodicTime;
 
-    printf("Aperiodic Task Response Time (ms): %d\n", aperiodicResponseTime/configTICK_RATE_HZ);
+    printf("Aperiodic Task Response Time (ms): %d\n", aperiodicResponseTime * (1000/configTICK_RATE_HZ));
     fflush(stdout);
     vTaskDelete(aperiodic_handle);
 }
