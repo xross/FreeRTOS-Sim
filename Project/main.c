@@ -101,6 +101,11 @@ void vApplicationMallocFailedHook( void );
 void vApplicationIdleHook( void );
 void vApplicationTickHook( void );
 
+static volatile TickType_t g_tickCount = 0;
+static volatile TickType_t g_matTime = 0;
+static volatile TickType_t g_comTime = 0;
+
+
 
 #define SIZE 10
 #define ROW SIZE
@@ -125,11 +130,15 @@ static void matrix_task()
         }
     }
 
+    TickType_t matStartCount;
+    
     while (1) {
         /*
         * In an embedded systems, matrix multiplication would block the CPU for a long time
         * but since this is a PC simulator we must add one additional dummy delay.
         */
+        matStartCount = g_tickCount;
+
         long simulationdelay;
         for (simulationdelay = 0; simulationdelay<1000000000; simulationdelay++)
             ;
@@ -151,42 +160,68 @@ static void matrix_task()
             }
         }
         vTaskDelay(100);
-        printf("One matix loop\n");
+        
+        g_matTime = g_tickCount - matStartCount;
+        printf("matixtask tick count: %d\n", g_matTime);
     }
 }
 
+int g_comTimeUpdate = 0;
+
 static void communication_task()
 {
-    TickType_t tickCount = xTaskGetTickCount();
-    TickType_t curTickCount;
+    TickType_t comStartCount;
+ 
     while (1) 
     {
-        curTickCount = xTaskGetTickCount();
-        //TODO handle init and wrap
-        TickType_t tickDiff = curTickCount - tickCount;
-        tickCount = curTickCount;
-        
-        printf("TickCount: %d\n", tickDiff);    
+        comStartCount = g_tickCount;
 
+        /* Original task code */
         printf("Sending data...\n");
         fflush(stdout);
         vTaskDelay(100);
         printf("Data sent!\n");
         fflush(stdout);
         vTaskDelay(100);
+        printf("communicationtask tick count: %d\n", g_tickCount - comStartCount);
+        g_comTimeUpdate = 1;
     }
 }
 
+TaskHandle_t g_matrix_handle;
+TaskHandle_t g_communication_handle;
+TaskHandle_t g_priorityset_handle;
+
+static void priorityset_task()
+{
+    while(1)
+    {
+        if(g_comTimeUpdate)
+        {
+            g_comTimeUpdate = 0;
+            if (g_comTime > 1000)
+            {
+                vTaskPrioritySet( g_communication_handle, 4);
+                printf("communicationstask priority: %d \n",(int)uxTaskPriorityGet(g_communication_handle));
+                fflush(stdout);
+            }
+            else if (g_comTime < 200)
+            {
+                vTaskPrioritySet(g_communication_handle, 2);
+                printf("communicationstask priority: %d \n",(int)uxTaskPriorityGet(g_communication_handle));
+                fflush(stdout);
+            }
+        }
+    }
+}
 
 /*-----------------------------------------------------------*/
 
 int main ( void )
 {
-    TaskHandle_t matrix_handle;
-    TaskHandle_t communication_handle;
-
-    xTaskCreate((pdTASK_CODE)matrix_task, (const char *)"Matrix", 1000, NULL, 1, &matrix_handle);
-    xTaskCreate((pdTASK_CODE)communication_task, (const char *)"Communication", configMINIMAL_STACK_SIZE, NULL, 2, &communication_handle);
+    xTaskCreate((pdTASK_CODE)matrix_task, (const char *)"Matrix", 1000, NULL, 2, &g_matrix_handle);
+    xTaskCreate((pdTASK_CODE)communication_task, (const char *)"Communication", configMINIMAL_STACK_SIZE, NULL, 1, &g_communication_handle);
+    xTaskCreate((pdTASK_CODE)priorityset_task, (const char *)"PrioritySet", configMINIMAL_STACK_SIZE, NULL, 1, &g_priorityset_handle);
 
 	/* Start the scheduler itself. */
 	vTaskStartScheduler();
@@ -214,7 +249,7 @@ void vApplicationMallocFailedHook( void )
 /*-----------------------------------------------------------*/
 
 void vApplicationIdleHook( void )
-{
+{   
 	/* vApplicationIdleHook() will only be called if configUSE_IDLE_HOOK is set
 	to 1 in FreeRTOSConfig.h.  It will be called on each iteration of the idle
 	task.  It is essential that code added to this hook function never attempts
@@ -238,6 +273,7 @@ void vApplicationTickHook( void )
 	added here, but the tick hook is called from an interrupt context, so
 	code must not attempt to block, and only the interrupt safe FreeRTOS API
 	functions can be used (those that end in FromISR()). */
+    g_tickCount++;
 }
 /*-----------------------------------------------------------*/
 

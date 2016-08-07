@@ -80,7 +80,7 @@ Sending data...
 Data sent!
 \end{lstlisting}
 
-By increasing the priority of communications task to a priority higher than matrix task (say 2 and 1 respectively) the output belows shows that th
+By increasing the priority of communications task to a priority higher than matrix task (say 2 and 1 respectively) the output belows shows that the
 communications task can run every 200ms as required:
 
 \begin{lstlisting}
@@ -107,8 +107,18 @@ Data sent!
 
 \section{Adding ``prioritysettask''}
 
-\subsection{Subsection Heading Here}
-Write your subsection text here.
+Since the assignment hints at the use of \verb|vApplicationTickHook()| the timing methodology was change to a simple global being incremented in this hook:
+
+\begin{lstlisting}
+void vApplicationTickHook( void )
+{
+    g_tickCount++;
+}
+\end{lstlisting}
+
+"matrixtask" and "communicationtask" use this global counter to time their period/execution time.
+
+A task "prioritysettask" was added to modify the priority of "communicationtask" based on it's execution time. This was achieved using \verb|vTaskPrioritySet()| and the handle of the task.
 
 
 \section{Questions}
@@ -116,15 +126,35 @@ Write your subsection text here.
 \begin{qanda}
 
 \Q Why is "matrixtask" using most of the CPU utilization?
-\A
+
+\A ``matrixtask'' is performing matrix multiplications on a 10x10 matrix, this is a computationally expensive operation due to the number of arithmetic operations (N multiplications and N additions for one result element, N\textsuperscript{3} multiplications and additions for all result elements) and memory accesses required.  This is exasperated if emulating floating point arithmetic an embedded platform without a floating point unit - this is simulated by the ``simulation'' delay loop. 
+
 
 \Q Why must the priority of "communicationtask" increase in order for it to work properly
 
+\A When the priority of "communicationtask" is less than "matrixtask" it only has the opportunity to be issued when "matrixtask" runs \verb|vTaskDelay()| and is blocked. By increasing its priority it can preempt the "matrixtask" allowing it to hit it's deadline.  
+
 \Q What happens to the completion time of "matrixtask" when the priority of "communicationtask" is increased?
 
-\Q How many seconds is the period of "matrixtask"? (Hint: look at vApplicationTickHook() to measure it)
+\A The completion time of "matrixtask" increased when the priority of "communcationtask" is increased. This is due to "matrixtask" being preempted by "communicationtask" to perform its required periodic communication. It can see by the trace that "matrixtask" timing jumps from 2.3ms to around 2.5ms as the priority of "communicationstask" increases.
+
+\Q How many seconds is the period of "matrixtask"?
+
+\A The period of "matrixtask" is approximately 2.3ms (optimisations turned off) in my environment.
 
 \end{qanda}
+
+
+\section{Final Output}
+
+The final program output shows "matrixtask" blocking "communicationtask", the priorities are then updated such that "communcationtask" hits it's 200ms target, with "matrixtask" continuing to run:
+
+\begin{figure}
+    \includegraphics[width=10.0in]{week2}
+    \caption{Simulation Results}
+    \label{simulationfigure}
+\end{figure}
+
 
 \end{document}
 
