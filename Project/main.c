@@ -92,6 +92,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "timers.h"
 
 /*
  * Prototypes for the standard FreeRTOS callback/hook functions implemented
@@ -100,11 +101,56 @@
 void vApplicationMallocFailedHook( void );
 void vApplicationIdleHook( void );
 void vApplicationTickHook( void );
+void vTimerCallback(TimerHandle_t pxTimer);
 
 static volatile TickType_t g_tickCount = 0;
 static volatile TickType_t g_matTime = 0;
-static volatile TickType_t g_comTime = 0;
 
+TaskHandle_t aperiodic_handle;
+
+static volatile TickType_t g_aperiodicTime = 0;
+
+static void aperiodic_task()
+{
+
+    printf("Aperiodic task started\n");
+    fflush(stdout);
+    long i;
+    for (i = 0; i<1000000000; i++); //Dummy workload
+    printf("Aperiodic task finished execution\n");
+    fflush(stdout);
+
+    TickType_t aperiodicResponseTime = g_tickCount - g_aperiodicTime;
+
+    printf("Aperiodic Task Response Time (ms): %d\n", aperiodicResponseTime/configTICK_RATE_HZ);
+    fflush(stdout);
+    vTaskDelete(aperiodic_handle);
+}
+
+/*A variable to hold a count of the number of times the timer expires.*/
+long lExpireCounters = 0;
+
+void vTimerCallback(TimerHandle_t pxTimer)
+{
+    printf("Timer callback!\n");
+
+    /* Record release time of aperiodic task */
+    g_aperiodicTime = g_tickCount;
+
+    xTaskCreate((pdTASK_CODE)aperiodic_task, (char *)"Aperiodic", configMINIMAL_STACK_SIZE, NULL, 2, &aperiodic_handle);
+
+    const long xMaxExpiryCountBeforeStopping = 10;
+    /* Optionally do something if the pxTimer parameter is NULL. */
+    configASSERT(pxTimer);
+    /* Increment the number of times that pxTimer has expired. */
+    lExpireCounters += 1;
+    /* If the timer has expired 10 times then stop it from running. */
+    if (lExpireCounters == xMaxExpiryCountBeforeStopping) {
+        /* Do not use a block time if calling a timer API function from a
+        timer callback function, as doing so could cause a deadlock! */
+        xTimerStop(pxTimer, 0);
+    }
+}
 
 
 #define SIZE 10
@@ -166,62 +212,26 @@ static void matrix_task()
     }
 }
 
-int g_comTimeUpdate = 0;
-
-static void communication_task()
-{
-    TickType_t comStartCount;
- 
-    while (1) 
-    {
-        comStartCount = g_tickCount;
-
-        /* Original task code */
-        printf("Sending data...\n");
-        fflush(stdout);
-        vTaskDelay(100);
-        printf("Data sent!\n");
-        fflush(stdout);
-        vTaskDelay(100);
-        printf("communicationtask tick count: %d\n", g_tickCount - comStartCount);
-        g_comTimeUpdate = 1;
-    }
-}
-
 TaskHandle_t g_matrix_handle;
-TaskHandle_t g_communication_handle;
-TaskHandle_t g_priorityset_handle;
 
-static void priorityset_task()
-{
-    while(1)
-    {
-        if(g_comTimeUpdate)
-        {
-            g_comTimeUpdate = 0;
-            if (g_comTime > 1000)
-            {
-                vTaskPrioritySet( g_communication_handle, 4);
-                printf("communicationstask priority: %d \n",(int)uxTaskPriorityGet(g_communication_handle));
-                fflush(stdout);
-            }
-            else if (g_comTime < 200)
-            {
-                vTaskPrioritySet(g_communication_handle, 2);
-                printf("communicationstask priority: %d \n",(int)uxTaskPriorityGet(g_communication_handle));
-                fflush(stdout);
-            }
-        }
-    }
-}
 
 /*-----------------------------------------------------------*/
 
 int main ( void )
 {
+    /* Create matrix task */
     xTaskCreate((pdTASK_CODE)matrix_task, (const char *)"Matrix", 1000, NULL, 2, &g_matrix_handle);
-    xTaskCreate((pdTASK_CODE)communication_task, (const char *)"Communication", configMINIMAL_STACK_SIZE, NULL, 1, &g_communication_handle);
-    xTaskCreate((pdTASK_CODE)priorityset_task, (const char *)"PrioritySet", configMINIMAL_STACK_SIZE, NULL, 1, &g_priorityset_handle);
+
+    TimerHandle_t timer = xTimerCreate("Timer", pdMS_TO_TICKS(5000), pdTRUE, NULL, vTimerCallback);
+
+    if(timer != NULL)
+    {
+        if(xTimerStart(timer,0) != pdPASS)
+        {
+            printf("Timer didn't start\n");
+        }
+    }
+
 
 	/* Start the scheduler itself. */
 	vTaskStartScheduler();
