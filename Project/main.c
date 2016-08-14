@@ -220,8 +220,9 @@ TaskHandle_t g_matrix_handle;
 int main ( void )
 {
     /* Create matrix task */
-    xTaskCreate((pdTASK_CODE)matrix_task, (const char *)"Matrix", 1000, NULL, 2, &g_matrix_handle);
+    xTaskCreate((pdTASK_CODE)matrix_task, (const char *)"Matrix", 1000, NULL, 1, &g_matrix_handle);
 
+    /* Create timer interrupt */
     TimerHandle_t timer = xTimerCreate("Timer", pdMS_TO_TICKS(5000), pdTRUE, NULL, vTimerCallback);
 
     if(timer != NULL)
@@ -231,7 +232,6 @@ int main ( void )
             printf("Timer didn't start\n");
         }
     }
-
 
 	/* Start the scheduler itself. */
 	vTaskStartScheduler();
