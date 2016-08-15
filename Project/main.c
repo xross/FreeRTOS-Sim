@@ -92,7 +92,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "timers.h"
+#include "queue.h"
 
 /*
  * Prototypes for the standard FreeRTOS callback/hook functions implemented
@@ -101,61 +101,16 @@
 void vApplicationMallocFailedHook( void );
 void vApplicationIdleHook( void );
 void vApplicationTickHook( void );
-void vTimerCallback(TimerHandle_t pxTimer);
 
-static volatile TickType_t g_tickCount = 0;
-static volatile TickType_t g_matTime = 0;
 
-TaskHandle_t aperiodic_handle;
-
-static volatile TickType_t g_aperiodicTime = 0;
-
-static void aperiodic_task()
-{
-
-    printf("Aperiodic task started\n");
-    fflush(stdout);
-    long i;
-    for (i = 0; i<1000000000; i++); //Dummy workload
-    printf("Aperiodic task finished execution\n");
-    fflush(stdout);
-
-    TickType_t aperiodicResponseTime = g_tickCount - g_aperiodicTime;
-
-    printf("Aperiodic Task Response Time (ms): %d\n", aperiodicResponseTime * (1000/configTICK_RATE_HZ));
-    fflush(stdout);
-    vTaskDelete(aperiodic_handle);
-}
-
-/*A variable to hold a count of the number of times the timer expires.*/
-long lExpireCounters = 0;
-
-void vTimerCallback(TimerHandle_t pxTimer)
-{
-    printf("Timer callback!\n");
-
-    /* Record release time of aperiodic task */
-    g_aperiodicTime = g_tickCount;
-
-    xTaskCreate((pdTASK_CODE)aperiodic_task, (char *)"Aperiodic", configMINIMAL_STACK_SIZE, NULL, 2, &aperiodic_handle);
-
-    const long xMaxExpiryCountBeforeStopping = 10;
-    /* Optionally do something if the pxTimer parameter is NULL. */
-    configASSERT(pxTimer);
-    /* Increment the number of times that pxTimer has expired. */
-    lExpireCounters += 1;
-    /* If the timer has expired 10 times then stop it from running. */
-    if (lExpireCounters == xMaxExpiryCountBeforeStopping) {
-        /* Do not use a block time if calling a timer API function from a
-        timer callback function, as doing so could cause a deadlock! */
-        xTimerStop(pxTimer, 0);
-    }
-}
-
+TaskHandle_t g_matrix_handle = NULL;
+TaskHandle_t g_reader_handle = NULL;
+QueueHandle_t g_queue = NULL;
 
 #define SIZE 10
 #define ROW SIZE
 #define COL SIZE
+
 static void matrix_task() 
 {
     int i;
@@ -176,14 +131,11 @@ static void matrix_task()
         }
     }
 
-    TickType_t matStartCount;
-    
     while (1) {
         /*
         * In an embedded systems, matrix multiplication would block the CPU for a long time
         * but since this is a PC simulator we must add one additional dummy delay.
         */
-        matStartCount = g_tickCount;
 
         long simulationdelay;
         for (simulationdelay = 0; simulationdelay<1000000000; simulationdelay++)
@@ -205,14 +157,45 @@ static void matrix_task()
                 c[i][j] = sum;
             }
         }
+       
+        printf("matrix_task sending\n");
+
+        /* Note, item added to queue by copy, not reference */
+        if (xQueueSendToBack(g_queue, c, portMAX_DELAY) != pdPASS)
+        {
+            printf("Failed to send message\n");
+            fflush(stdout);
+        }
         vTaskDelay(100);
-        
-        g_matTime = g_tickCount - matStartCount;
-        printf("matixtask tick count: %d\n", g_matTime);
     }
 }
 
-TaskHandle_t g_matrix_handle;
+static void reader_task()
+{
+    /* Note, xQueueReceive() receives items by copy so an adequate buffer must be provided */
+    /* The number of bytes copied into the buffer was set when the queue was created */
+    double **c = (double **)pvPortMalloc(ROW * sizeof(double*));
+    for (int i = 0; i < ROW; i++) c[i] = (double *)pvPortMalloc(COL * sizeof(double));
+
+    while (1)
+    {
+        if(xQueueReceive(g_queue, c, portMAX_DELAY))
+        {
+            printf("read_task received:\n");
+            for (int i = 0; i < SIZE; i++)
+            {
+                for (int j = 0; j < SIZE; j++)
+                {
+                    printf("c[%d][%d] = %lf ", i, j, c[i][j]);
+                }
+                printf("\n");
+            }
+            printf("-----\n");
+            fflush(stdout);
+        }
+        vTaskDelay(200);
+    }
+}
 
 
 /*-----------------------------------------------------------*/
@@ -221,17 +204,9 @@ int main ( void )
 {
     /* Create matrix task */
     xTaskCreate((pdTASK_CODE)matrix_task, (const char *)"Matrix", 1000, NULL, 1, &g_matrix_handle);
+    xTaskCreate((pdTASK_CODE)reader_task, (const char *)"Matrix", 1000, NULL, 1, &g_reader_handle);
 
-    /* Create timer interrupt */
-    TimerHandle_t timer = xTimerCreate("Timer", pdMS_TO_TICKS(5000), pdTRUE, NULL, vTimerCallback);
-
-    if(timer != NULL)
-    {
-        if(xTimerStart(timer,0) != pdPASS)
-        {
-            printf("Timer didn't start\n");
-        }
-    }
+    g_queue = xQueueCreate(10, sizeof(double) * ROW * COL); 
 
 	/* Start the scheduler itself. */
 	vTaskStartScheduler();
@@ -253,7 +228,9 @@ void vApplicationMallocFailedHook( void )
 	heap available to pvPortMalloc() is defined by configTOTAL_HEAP_SIZE in
 	FreeRTOSConfig.h, and the xPortGetFreeHeapSize() API function can be used
 	to query the size of free heap space that remains (although it does not
-	provide information on how the remaining heap might be fragmented). */
+	p
+
+rovide information on how the remaining heap might be fragmented). */
 	vAssertCalled( __LINE__, __FILE__ );
 }
 /*-----------------------------------------------------------*/
@@ -283,7 +260,6 @@ void vApplicationTickHook( void )
 	added here, but the tick hook is called from an interrupt context, so
 	code must not attempt to block, and only the interrupt safe FreeRTOS API
 	functions can be used (those that end in FromISR()). */
-    g_tickCount++;
 }
 /*-----------------------------------------------------------*/
 
